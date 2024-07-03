@@ -23,18 +23,7 @@
 #ifndef FLUENT_BIT_V2_0_8_PLUGINS_FILTER_ENCRYPT_ENCRYPT_H_
 #define FLUENT_BIT_V2_0_8_PLUGINS_FILTER_ENCRYPT_ENCRYPT_H_
 
-#include "./json/mjson.h"
-#include "./hashmap/hashmap.h"
-#include "./encryption_libs/ip_encryption.h"
-#include "./encryption_libs/cmac.h"
-#include "./encryption_libs/aes_deterministic.h"
-#include "./encryption_libs/hmac.h"
-#include "./encryption_libs/aes_gcm.h"
-#include "./encryption_libs/aes_gcm_hmac_deterministic.h"
-#include "./utils/utils.h"
-#include "./utils/ip_utils.h"
-#include "./utils/crypto_utils.h"
-
+#include "mjson.h"
 #include <fluent-bit/flb_info.h>
 #include <fluent-bit/flb_filter.h>
 #include <fluent-bit/flb_record_accessor.h>
@@ -104,21 +93,21 @@ struct mk_list *head_pii;
 struct mk_list items_pii;
 
 static const struct json_attr_t events_attr[] = {
-        {"id",  t_integer,  .addr.offset = offsetof(struct pii_record_struct_t, id),.len = MAX_LENGTH},
-        {"eventType",  t_string,  .addr.offset = offsetof(struct pii_record_struct_t, eventType),.len = MAX_LENGTH},
-        {"fieldName",  t_string,  .addr.offset = offsetof(struct pii_record_struct_t, fieldName),.len = MAX_LENGTH},
-        {"maskingTechnique",  t_string,  .addr.offset = offsetof(struct pii_record_struct_t, maskingTechnique),.len = MAX_LENGTH},
-        {NULL},
+    {"id",  t_integer,  .addr.offset = offsetof(struct pii_record_struct_t, id),.len = MAX_LENGTH},
+    {"eventType",  t_string,  .addr.offset = offsetof(struct pii_record_struct_t, eventType),.len = MAX_LENGTH},
+    {"fieldName",  t_string,  .addr.offset = offsetof(struct pii_record_struct_t, fieldName),.len = MAX_LENGTH},
+    {"maskingTechnique",  t_string,  .addr.offset = offsetof(struct pii_record_struct_t, maskingTechnique),.len = MAX_LENGTH},
+    {NULL},
 };
 
 static const struct json_attr_t pii_fields_json_attrs_items[] = {
-        {"entries", t_array, .addr.array.element_type = t_structobject,
-                .addr.array.arr.objects.base = (char*)&pii_fields_records_array,
-                .addr.array.arr.objects.stride = sizeof(struct pii_record_struct_t),
-                .addr.array.arr.objects.subtype = events_attr,
-                .addr.array.count = &pii_obj_count,
-                .addr.array.maxlen = sizeof(pii_fields_records_array)/sizeof(pii_fields_records_array[0])},
-        {NULL},
+    {"entries", t_array, .addr.array.element_type = t_structobject,
+        .addr.array.arr.objects.base = (char*)&pii_fields_records_array,
+        .addr.array.arr.objects.stride = sizeof(struct pii_record_struct_t),
+        .addr.array.arr.objects.subtype = events_attr,
+        .addr.array.count = &pii_obj_count,
+        .addr.array.maxlen = sizeof(pii_fields_records_array)/sizeof(pii_fields_records_array[0])},
+    {NULL},
 };
 
 // Data encryption keys
@@ -149,21 +138,21 @@ static int dek_obj_count;
 static char value_delimiters[128];
 
 static const struct json_attr_t dek_events_attr[] = {
-        {"id",  t_integer,  .addr.offset = offsetof(struct dek_record_struct_t, id),.len = MAX_LENGTH},
-        {"created_on",  t_string,  .addr.offset = offsetof(struct dek_record_struct_t, created_on),.len = MAX_LENGTH},
-        {"encryption_key",  t_string,  .addr.offset = offsetof(struct dek_record_struct_t, encryption_key),.len = VALUE_MAX_LENGTH},
-        {"encryption_key_time_start",  t_string,  .addr.offset = offsetof(struct dek_record_struct_t, encryption_key_time_start),.len = MAX_LENGTH},
-        {NULL},
+    {"id",  t_integer,  .addr.offset = offsetof(struct dek_record_struct_t, id),.len = MAX_LENGTH},
+    {"created_on",  t_string,  .addr.offset = offsetof(struct dek_record_struct_t, created_on),.len = MAX_LENGTH},
+    {"encryption_key",  t_string,  .addr.offset = offsetof(struct dek_record_struct_t, encryption_key),.len = VALUE_MAX_LENGTH},
+    {"encryption_key_time_start",  t_string,  .addr.offset = offsetof(struct dek_record_struct_t, encryption_key_time_start),.len = MAX_LENGTH},
+    {NULL},
 };
 
 static const struct json_attr_t dek_fields_json_attrs_items[] = {
-        {"entries", t_array, .addr.array.element_type = t_structobject,
-                .addr.array.arr.objects.base = (char*)&dek_records_array,
-                .addr.array.arr.objects.stride = sizeof(struct dek_record_struct_t),
-                .addr.array.arr.objects.subtype = dek_events_attr,
-                .addr.array.count = &dek_obj_count,
-                .addr.array.maxlen = sizeof(dek_records_array)/sizeof(dek_records_array[0])},
-        {NULL},
+    {"entries", t_array, .addr.array.element_type = t_structobject,
+        .addr.array.arr.objects.base = (char*)&dek_records_array,
+        .addr.array.arr.objects.stride = sizeof(struct dek_record_struct_t),
+        .addr.array.arr.objects.subtype = dek_events_attr,
+        .addr.array.count = &dek_obj_count,
+        .addr.array.maxlen = sizeof(dek_records_array)/sizeof(dek_records_array[0])},
+    {NULL},
 };
 
 flb_sds_t flb_json_get_val(char *response, size_t response_len, char *key);

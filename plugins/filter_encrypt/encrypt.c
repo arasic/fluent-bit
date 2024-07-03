@@ -40,6 +40,16 @@
 #include <msgpack.h>
 
 #include "encrypt.h"
+#include "hashmap.h"
+#include "ip_encryption.h"
+#include "cmac.h"
+#include "aes_deterministic.h"
+#include "utils.h"
+#include "hmac.h"
+#include "aes_gcm.h"
+#include "aes_gcm_hmac_deterministic.h"
+#include "ip_utils.h"
+#include "crypto_utils.h"
 #include "openssl/bio.h"
 
 #include <fluent-bit/flb_info.h>
@@ -569,41 +579,41 @@ static int cb_encrypt_init(struct flb_filter_instance *f_ins,
 }
 
 static inline bool helper_msgpack_object_matches_str(msgpack_object *obj, char* str, int len) {
-const char* key;
-int klen;
+    const char* key;
+    int klen;
 
-if (obj->type == MSGPACK_OBJECT_BIN) {
-key = obj->via.bin.ptr;
-klen = obj->via.bin.size;
-} else if (obj->type == MSGPACK_OBJECT_STR) {
-key = obj->via.str.ptr;
-klen = obj->via.str.size;
-} else {
-return false;
-}
-bool compare = ((len == klen) && (strncmp(str, key, klen) == 0));
-return compare;
+    if (obj->type == MSGPACK_OBJECT_BIN) {
+        key = obj->via.bin.ptr;
+        klen = obj->via.bin.size;
+    } else if (obj->type == MSGPACK_OBJECT_STR) {
+        key = obj->via.str.ptr;
+        klen = obj->via.str.size;
+    } else {
+        return false;
+    }
+    bool compare = ((len == klen) && (strncmp(str, key, klen) == 0));
+    return compare;
 }
 
 static inline bool kv_key_matches_str(msgpack_object_kv *kv, char* str, int len)
 {
-return helper_msgpack_object_matches_str(&kv->key, str, len);
+    return helper_msgpack_object_matches_str(&kv->key, str, len);
 }
 
 static inline bool kv_val_matches_str(msgpack_object_kv *kv, char* str, int len)
 {
-return helper_msgpack_object_matches_str(&kv->val, str, len);
+    return helper_msgpack_object_matches_str(&kv->val, str, len);
 }
 
 
 static inline bool kv_key_matches_str_field_name_key(msgpack_object_kv* kv,struct pii_kv* entry)
 {
-return kv_key_matches_str(kv, entry->key, entry->key_len);
+    return kv_key_matches_str(kv, entry->key, entry->key_len);
 }
 
 static inline bool kv_key_does_not_match_str_field_name_key(msgpack_object_kv* kv, struct pii_kv* entry)
 {
-return !kv_key_matches_str_field_name_key(kv, entry);
+    return !kv_key_matches_str_field_name_key(kv, entry);
 }
 
 static inline int map_count_keys_matching_str(msgpack_object* map, char* str, int len)
@@ -637,14 +647,14 @@ static inline void map_pack_each(msgpack_packer* packer, msgpack_object* map) {
 
 static inline void map_pack_each_fn(msgpack_packer* packer, msgpack_object* map, struct modify_rule* rule, bool(* f)(
                                     msgpack_object_kv* kv, struct modify_rule* rule)) {
-int i;
+    int i;
 
-for (i = 0; i < map->via.map.size; i++) {
-if ((*f) (&map->via.map.ptr[i], rule)) {
-msgpack_pack_object(packer, map->via.map.ptr[i].key);
-msgpack_pack_object(packer, map->via.map.ptr[i].val);
-}
-}
+    for (i = 0; i < map->via.map.size; i++) {
+        if ((*f) (&map->via.map.ptr[i], rule)) {
+            msgpack_pack_object(packer, map->via.map.ptr[i].key);
+            msgpack_pack_object(packer, map->via.map.ptr[i].val);
+        }
+    }
 }
 
 static inline void map_pack_each_fn_kv(msgpack_packer *packer,
@@ -652,14 +662,14 @@ static inline void map_pack_each_fn_kv(msgpack_packer *packer,
                                        struct pii_kv *field_kv,
                                        bool(* f)(msgpack_object_kv *kv,
                                        struct pii_kv *field_kv)) {
-int i;
+    int i;
 
-for (i = 0; i < map->via.map.size; i++) {
-if ((*f) (&map->via.map.ptr[i], field_kv)) {
-msgpack_pack_object(packer, map->via.map.ptr[i].key);
-msgpack_pack_object(packer, map->via.map.ptr[i].val);
-}
-}
+    for (i = 0; i < map->via.map.size; i++) {
+        if ((*f) (&map->via.map.ptr[i], field_kv)) {
+            msgpack_pack_object(packer, map->via.map.ptr[i].key);
+            msgpack_pack_object(packer, map->via.map.ptr[i].val);
+        }
+    }
 }
 
 
@@ -741,7 +751,7 @@ static inline int apply_rule_ENCRYPT(struct flb_filter_encrypt* ctx, msgpack_pac
                 } else if (strncmp(an_item->val, "aes_gcm", an_item->val_len) == 0) {
                     // encrypt with aes-gcm mode
                     pseudonymized_value =
-                            aes_128_gcm_encrypt(tmp_extracted_value, strlen(tmp_extracted_value), aes_det_key);
+                        aes_128_gcm_encrypt(tmp_extracted_value, strlen(tmp_extracted_value), aes_det_key);
                     flb_debug("Encrypted with aes-gcm mode: %s\n", pseudonymized_value);
                 } else if (strncmp(an_item->val, "aes_gcm_det", an_item->val_len) == 0) {
                     // encrypt with aes-gcm mode deterministic
@@ -860,7 +870,7 @@ static inline int apply_modifying_rules(msgpack_packer* packer, msgpack_object* 
             if (msgpack_unpacker_buffer_capacity(&unpacker) < new_buffer_size) {
                 if (!msgpack_unpacker_reserve_buffer(&unpacker, new_buffer_size)) {
                     flb_plg_error(ctx->f_ins, "Unable to re-allocate memory for "
-                                              "unpacker, aborting");
+                                            "unpacker, aborting");
                     return -1;
                 }
             }
@@ -874,7 +884,7 @@ static inline int apply_modifying_rules(msgpack_packer* packer, msgpack_object* 
                 map = unpacked.data;
             } else {
                 flb_plg_error(ctx->f_ins, "Expected MSGPACK_MAP, this is not a "
-                                          "valid return value, skipping");
+                                        "valid return value, skipping");
             }
         }
 
@@ -903,12 +913,12 @@ static inline int apply_modifying_rules(msgpack_packer* packer, msgpack_object* 
 }
 
 static int cb_encrypt_filter(const void *data, size_t bytes,
-                             const char *tag, int tag_len,
-                             void **out_buf, size_t *out_size,
-                             struct flb_filter_instance *f_ins,
-                             struct flb_input_instance *i_ins,
-                             void *context,
-                             struct flb_config *config)
+                         const char *tag, int tag_len,
+                         void **out_buf, size_t *out_size,
+                         struct flb_filter_instance *f_ins,
+                         struct flb_input_instance *i_ins,
+                         void *context,
+                         struct flb_config *config)
 {
 
     flb_debug("cb_encrypt_filter");
@@ -1028,68 +1038,68 @@ static int cb_encrypt_exit(void *data, struct flb_config *config)
 
 /* Configuration properties map */
 static struct flb_config_map config_map[] = {
-        {
-                FLB_CONFIG_MAP_STR, "host", NULL,
-                0, FLB_TRUE, offsetof(struct flb_filter_encrypt, host),
-        "The host of the server where to get the PII fields."
-        },
-        {
-                FLB_CONFIG_MAP_INT, "port", 0,
-                0, FLB_TRUE, offsetof(struct flb_filter_encrypt, port),
-        "The port on the server where to get the PII fields."
-        },
-        {
-                FLB_CONFIG_MAP_STR, "uri_pii_fields", NULL,
-                0, FLB_TRUE, offsetof(struct flb_filter_encrypt, uri_pii_fields),
-        "The URI on the server where to get the PII fields."
-        },
-        {
-                FLB_CONFIG_MAP_STR, "organization_key", NULL,
-                0, FLB_TRUE, offsetof(struct flb_filter_encrypt, organization_key),
-        "The Organization Key part of the API Key."
-        },
-        {
-                FLB_CONFIG_MAP_STR, "api_access_key", NULL,
-                0, FLB_TRUE, offsetof(struct flb_filter_encrypt, api_access_key),
-        "The API Access Key."
-        },
-        {
-                FLB_CONFIG_MAP_STR, "api_secret_key", NULL,
-                0, FLB_TRUE, offsetof(struct flb_filter_encrypt, api_secret_key),
-        "The API Secret Key."
-        },
-        {
-                FLB_CONFIG_MAP_STR, "tenant_id", NULL,
-                0, FLB_TRUE, offsetof(struct flb_filter_encrypt, tenant_id),
-        "The URI on the server where to get the PII fields."
-        },
-        {
-                FLB_CONFIG_MAP_INT, "agent_id", 0,
-                0, FLB_TRUE, offsetof(struct flb_filter_encrypt, agent_id),
-        "The URI on the server where to get the PII fields."
-        },
-        {
-                FLB_CONFIG_MAP_STR, "uri_enc_keys", 0,
-                0, FLB_TRUE, offsetof(struct flb_filter_encrypt, uri_enc_keys),
-        "The URI on the server where to get the PII fields."
-        },
-        {
-                FLB_CONFIG_MAP_STR, "master_enc_key", 0,
-                0, FLB_TRUE, offsetof(struct flb_filter_encrypt, master_enc_key),
-        "The URI on the server where to get the PII fields."
-        },
+    {
+        FLB_CONFIG_MAP_STR, "host", NULL,
+        0, FLB_TRUE, offsetof(struct flb_filter_encrypt, host),
+    "The host of the server where to get the PII fields."
+    },
+    {
+        FLB_CONFIG_MAP_INT, "port", 0,
+        0, FLB_TRUE, offsetof(struct flb_filter_encrypt, port),
+    "The port on the server where to get the PII fields."
+    },
+    {
+        FLB_CONFIG_MAP_STR, "uri_pii_fields", NULL,
+        0, FLB_TRUE, offsetof(struct flb_filter_encrypt, uri_pii_fields),
+    "The URI on the server where to get the PII fields."
+    },
+    {
+        FLB_CONFIG_MAP_STR, "organization_key", NULL,
+        0, FLB_TRUE, offsetof(struct flb_filter_encrypt, organization_key),
+    "The Organization Key part of the API Key."
+    },
+    {
+    FLB_CONFIG_MAP_STR, "api_access_key", NULL,
+            0, FLB_TRUE, offsetof(struct flb_filter_encrypt, api_access_key),
+    "The API Access Key."
+    },
+    {
+    FLB_CONFIG_MAP_STR, "api_secret_key", NULL,
+            0, FLB_TRUE, offsetof(struct flb_filter_encrypt, api_secret_key),
+    "The API Secret Key."
+    },
+    {
+        FLB_CONFIG_MAP_STR, "tenant_id", NULL,
+        0, FLB_TRUE, offsetof(struct flb_filter_encrypt, tenant_id),
+    "The URI on the server where to get the PII fields."
+    },
+    {
+        FLB_CONFIG_MAP_INT, "agent_id", 0,
+        0, FLB_TRUE, offsetof(struct flb_filter_encrypt, agent_id),
+    "The URI on the server where to get the PII fields."
+    },
+    {
+        FLB_CONFIG_MAP_STR, "uri_enc_keys", 0,
+        0, FLB_TRUE, offsetof(struct flb_filter_encrypt, uri_enc_keys),
+    "The URI on the server where to get the PII fields."
+    },
+    {
+        FLB_CONFIG_MAP_STR, "master_enc_key", 0,
+        0, FLB_TRUE, offsetof(struct flb_filter_encrypt, master_enc_key),
+    "The URI on the server where to get the PII fields."
+    },
 
-        /* EOF */
-        {0}
+    /* EOF */
+    {0}
 };
 
 struct flb_filter_plugin filter_encrypt_plugin = {
-        .name         = "encrypt",
-        .description  = "Encrypts PII values by applying based on matching keys."
-                        "It takes 2 inputs: the field name and the masking function.",
-        .cb_init      = cb_encrypt_init,
-        .cb_filter    = cb_encrypt_filter,
-        .cb_exit      = cb_encrypt_exit,
-        .config_map   = config_map,
-        .flags        = 0
+    .name         = "encrypt",
+    .description  = "Encrypts PII values by applying based on matching keys."
+                   "It takes 2 inputs: the field name and the masking function.",
+    .cb_init      = cb_encrypt_init,
+    .cb_filter    = cb_encrypt_filter,
+    .cb_exit      = cb_encrypt_exit,
+    .config_map   = config_map,
+    .flags        = 0
 };
