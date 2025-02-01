@@ -526,8 +526,8 @@ int flb_input_chunk_find_space_new_data(struct flb_input_chunk *ic,
     }
 
     if (count != 0) {
-        flb_error("[input chunk] fail to drop enough chunks in order to place new data");
-        exit(0);
+        flb_error("[input chunk] fail to drop enough chunks in order to place "
+                  "new data coming from input plugin %s", flb_input_name(ic->in));
     }
 
     return 0;
@@ -815,6 +815,9 @@ static int input_chunk_write_header(struct cio_chunk *chunk, int event_type,
     else if (event_type == FLB_INPUT_TRACES) {
         meta[2] = FLB_INPUT_CHUNK_TYPE_TRACES;
     }
+    else if (event_type == FLB_INPUT_PROFILES) {
+        meta[2] = FLB_INPUT_CHUNK_TYPE_PROFILES;
+    }
 
     /* unused byte */
     meta[3] = 0;
@@ -928,6 +931,9 @@ struct flb_input_chunk *flb_input_chunk_create(struct flb_input_instance *in, in
     else if (event_type == FLB_INPUT_TRACES) {
         flb_hash_table_add(in->ht_trace_chunks, tag, tag_len, ic, 0);
     }
+    else if (event_type == FLB_INPUT_PROFILES) {
+        flb_hash_table_add(in->ht_profile_chunks, tag, tag_len, ic, 0);
+    }
 
     return ic;
 }
@@ -981,6 +987,10 @@ int flb_input_chunk_destroy_corrupted(struct flb_input_chunk *ic,
         }
         else if (ic->event_type == FLB_INPUT_TRACES) {
             flb_hash_table_del_ptr(ic->in->ht_trace_chunks,
+                                   tag_buf, tag_len, (void *) ic);
+        }
+        else if (ic->event_type == FLB_INPUT_PROFILES) {
+            flb_hash_table_del_ptr(ic->in->ht_profile_chunks,
                                    tag_buf, tag_len, (void *) ic);
         }
     }
@@ -1076,6 +1086,10 @@ int flb_input_chunk_destroy(struct flb_input_chunk *ic, int del)
             flb_hash_table_del_ptr(ic->in->ht_trace_chunks,
                                    tag_buf, tag_len, (void *) ic);
         }
+        else if (ic->event_type == FLB_INPUT_PROFILES) {
+            flb_hash_table_del_ptr(ic->in->ht_profile_chunks,
+                                   tag_buf, tag_len, (void *) ic);
+        }
     }
 
 #ifdef FLB_HAVE_CHUNK_TRACE
@@ -1120,6 +1134,10 @@ static struct flb_input_chunk *input_chunk_get(struct flb_input_instance *in,
     }
     else if (event_type == FLB_INPUT_TRACES) {
         id = flb_hash_table_get(in->ht_trace_chunks, tag, tag_len,
+                                (void *) &ic, &out_size);
+    }
+    else if (event_type == FLB_INPUT_PROFILES) {
+        id = flb_hash_table_get(in->ht_profile_chunks, tag, tag_len,
                                 (void *) &ic, &out_size);
     }
 
@@ -1579,6 +1597,26 @@ static int input_chunk_append_raw(struct flb_input_instance *in,
     flb_chunk_trace_do_input(ic);
 #endif /* FLB_HAVE_CHUNK_TRACE */
 
+    /* Update 'input' metrics */
+#ifdef FLB_HAVE_METRICS
+    if (ic->total_records > 0) {
+        /* timestamp */
+        ts = cfl_time_now();
+
+        /* fluentbit_input_records_total */
+        cmt_counter_add(in->cmt_records, ts, ic->added_records,
+                        1, (char *[]) {(char *) flb_input_name(in)});
+
+        /* fluentbit_input_bytes_total */
+        cmt_counter_add(in->cmt_bytes, ts, buf_size,
+                        1, (char *[]) {(char *) flb_input_name(in)});
+
+        /* OLD api */
+        flb_metrics_sum(FLB_METRIC_N_RECORDS, ic->added_records, in->metrics);
+        flb_metrics_sum(FLB_METRIC_N_BYTES, buf_size, in->metrics);
+    }
+#endif
+
     filtered_data_buffer = NULL;
     final_data_buffer = (char *) buf;
     final_data_size = buf_size;
@@ -1618,26 +1656,6 @@ static int input_chunk_append_raw(struct flb_input_instance *in,
         ic->added_records = 0;
         ic->total_records = total_records_start;
     }
-
-    /* Update 'input' metrics */
-#ifdef FLB_HAVE_METRICS
-    if (ic->total_records > 0) {
-        /* timestamp */
-        ts = cfl_time_now();
-
-        /* fluentbit_input_records_total */
-        cmt_counter_add(in->cmt_records, ts, ic->added_records,
-                        1, (char *[]) {(char *) flb_input_name(in)});
-
-        /* fluentbit_input_bytes_total */
-        cmt_counter_add(in->cmt_bytes, ts, buf_size,
-                        1, (char *[]) {(char *) flb_input_name(in)});
-
-        /* OLD api */
-        flb_metrics_sum(FLB_METRIC_N_RECORDS, ic->added_records, in->metrics);
-        flb_metrics_sum(FLB_METRIC_N_BYTES, buf_size, in->metrics);
-    }
-#endif
 
     if (ret == -1) {
         flb_error("[input chunk] error writing data from %s instance",
@@ -2048,6 +2066,12 @@ int flb_input_chunk_get_event_type(struct flb_input_chunk *ic)
         }
         else if (buf[2] == FLB_INPUT_CHUNK_TYPE_TRACES) {
             type = FLB_INPUT_TRACES;
+        }
+        else if (buf[2] == FLB_INPUT_CHUNK_TYPE_PROFILES) {
+            type = FLB_INPUT_PROFILES;
+        }
+        else if (buf[2] == FLB_INPUT_CHUNK_TYPE_BLOBS) {
+            type = FLB_INPUT_BLOBS;
         }
     }
     else {

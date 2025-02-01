@@ -100,7 +100,7 @@ static inline int is_float(const char *buf, int len)
     const char *p = buf;
 
     while (p <= end) {
-        if (*p == 'e' && p < end && *(p + 1) == '-') {
+        if ((*p == 'e' || *p == 'E') && p < end && (*(p + 1) == '-' || *(p + 1) == '+')) {
             return 1;
         }
         else if (*p == '.') {
@@ -810,7 +810,7 @@ flb_sds_t flb_msgpack_raw_to_json_sds(const void *in_buf, size_t in_size)
             tmp_buf = flb_sds_increase(out_buf, realloc_size);
             if (tmp_buf) {
                 out_buf = tmp_buf;
-                out_size *= realloc_size;
+                out_size = flb_sds_alloc(out_buf);
             }
             else {
                 flb_errno();

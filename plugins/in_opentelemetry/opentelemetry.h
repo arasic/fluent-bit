@@ -35,9 +35,11 @@ struct flb_opentelemetry {
     flb_sds_t listen;
     flb_sds_t tcp_port;
     const char *tag_key;
-    bool raw_traces;
+    int raw_traces;
     int  tag_from_uri;
     flb_sds_t logs_metadata_key;
+    int profile_support_enabled;
+    int encode_profiles_as_log;
 
     struct flb_input_instance *ins;
 

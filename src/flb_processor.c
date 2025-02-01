@@ -29,6 +29,7 @@
 #include <fluent-bit/flb_mp_chunk.h>
 #include <fluent-bit/flb_log_event_decoder.h>
 #include <fluent-bit/flb_log_event_encoder.h>
+#include <cfl/cfl.h>
 
 static int acquire_lock(pthread_mutex_t *lock,
                         size_t retry_limit,
@@ -100,7 +101,7 @@ static int release_lock(pthread_mutex_t *lock,
 
 /*
  * A processor creates a chain of processing units for different telemetry data
- * types such as logs, metrics and traces.
+ * types such as logs, metrics, traces and profiles.
  *
  * From a design perspective, a Processor can be run independently from inputs, outputs
  * or unit tests directly.
@@ -128,6 +129,7 @@ struct flb_processor *flb_processor_create(struct flb_config *config,
     mk_list_init(&proc->logs);
     mk_list_init(&proc->metrics);
     mk_list_init(&proc->traces);
+    mk_list_init(&proc->profiles);
 
     return proc;
 }
@@ -266,6 +268,9 @@ struct flb_processor_unit *flb_processor_unit_create(struct flb_processor *proc,
     else if (event_type == FLB_PROCESSOR_TRACES) {
         mk_list_add(&pu->_head, &proc->traces);
     }
+    else if (event_type == FLB_PROCESSOR_PROFILES) {
+        mk_list_add(&pu->_head, &proc->profiles);
+    }
 
     pu->stage = proc->stage_count;
     proc->stage_count++;
@@ -300,7 +305,7 @@ int flb_processor_unit_set_property(struct flb_processor_unit *pu, const char *k
 
     return flb_processor_instance_set_property(
             (struct flb_processor_instance *) pu->ctx,
-            k, v->data.as_string);
+            k, v);
 }
 
 void flb_processor_unit_destroy(struct flb_processor_unit *pu)
@@ -341,6 +346,9 @@ int flb_processor_unit_init(struct flb_processor_unit *pu)
             flb_error("[processor] error initializing unit filter %s", pu->name);
             return -1;
         }
+
+        ((struct flb_filter_instance *) pu->ctx)->notification_channel = \
+            proc->notification_channel;
     }
     else {
         ret = flb_processor_instance_init(
@@ -355,6 +363,9 @@ int flb_processor_unit_init(struct flb_processor_unit *pu)
 
             return -1;
         }
+
+        ((struct flb_processor_instance *) pu->ctx)->notification_channel = \
+            proc->notification_channel;
     }
 
     return ret;
@@ -399,6 +410,16 @@ int flb_processor_init(struct flb_processor *proc)
         count++;
     }
 
+    mk_list_foreach(head, &proc->profiles) {
+        pu = mk_list_entry(head, struct flb_processor_unit, _head);
+        ret = flb_processor_unit_init(pu);
+
+        if (ret == -1) {
+            return -1;
+        }
+        count++;
+    }
+
     if (count > 0) {
         proc->is_active = FLB_TRUE;
     }
@@ -419,7 +440,8 @@ int flb_processor_is_active(struct flb_processor *proc)
 /*
  * This function will run all the processor units for the given tag and data, note
  * that depending of the 'type', 'data' can reference a msgpack for logs, a CMetrics
- * context for metrics or a 'CTraces' context for traces.
+ * context for metrics, a 'CTraces' context for traces or a 'CProfiles' context for
+ * profiles.
  */
 int flb_processor_run(struct flb_processor *proc,
                       size_t starting_stage,
@@ -441,6 +463,13 @@ int flb_processor_run(struct flb_processor *proc,
     struct flb_filter_instance *f_ins;
     struct flb_processor_instance *p_ins;
     struct flb_mp_chunk_cobj *chunk_cobj = NULL;
+#ifdef FLB_HAVE_METRICS
+    int in_records = 0;
+    int out_records = 0;
+    int diff = 0;
+    uint64_t ts;
+    char *name;
+#endif
 
     if (type == FLB_PROCESSOR_LOGS) {
         list = &proc->logs;
@@ -451,6 +480,14 @@ int flb_processor_run(struct flb_processor *proc,
     else if (type == FLB_PROCESSOR_TRACES) {
         list = &proc->traces;
     }
+    else if (type == FLB_PROCESSOR_PROFILES) {
+        list = &proc->profiles;
+    }
+
+#ifdef FLB_HAVE_METRICS
+    /* timestamp */
+    ts = cfl_time_now();
+#endif
 
     /* set current data buffer */
     cur_buf = data;
@@ -492,7 +529,17 @@ int flb_processor_run(struct flb_processor *proc,
                                       proc->data,           /* (input/output) instance context */
                                       f_ins->context,       /* filter context */
                                       proc->config);
+#ifdef FLB_HAVE_METRICS
+            name = (char *) (flb_filter_name(f_ins));
+            in_records = flb_mp_count(cur_buf, cur_size);
+            cmt_counter_add(f_ins->cmt_records, ts, in_records,
+                    1, (char *[]) {name});
+            cmt_counter_add(f_ins->cmt_bytes, ts, tmp_size,
+                    1, (char *[]) {name});
 
+            flb_metrics_sum(FLB_METRIC_N_RECORDS, in_records, f_ins->metrics);
+            flb_metrics_sum(FLB_METRIC_N_BYTES, tmp_size, f_ins->metrics);
+#endif
             /*
              * The cb_filter() function return status tells us if something changed
              * during it process. The possible values are:
@@ -519,6 +566,15 @@ int flb_processor_run(struct flb_processor *proc,
                     *out_buf = NULL;
                     *out_size = 0;
 
+#ifdef FLB_HAVE_METRICS
+                    /* cmetrics */
+                    cmt_counter_add(f_ins->cmt_drop_records, ts, in_records,
+                                    1, (char *[]) {name});
+
+                    /* [OLD] Summarize all records removed */
+                    flb_metrics_sum(FLB_METRIC_N_DROPPED,
+                                    in_records, f_ins->metrics);
+#endif
                     release_lock(&pu->lock,
                                  FLB_PROCESSOR_LOCK_RETRY_LIMIT,
                                  FLB_PROCESSOR_LOCK_RETRY_DELAY);
@@ -529,6 +585,32 @@ int flb_processor_run(struct flb_processor *proc,
                 /* set new buffer */
                 cur_buf = tmp_buf;
                 cur_size = tmp_size;
+                out_records = flb_mp_count(tmp_buf, tmp_size);
+#ifdef FLB_HAVE_METRICS
+                    if (out_records > in_records) {
+                        diff = (out_records - in_records);
+
+                        /* cmetrics */
+                        cmt_counter_add(f_ins->cmt_add_records, ts, diff,
+                                    1, (char *[]) {name});
+
+                        /* [OLD] Summarize new records */
+                        flb_metrics_sum(FLB_METRIC_N_ADDED,
+                                        diff, f_ins->metrics);
+                    }
+                    else if (out_records < in_records) {
+                        diff = (in_records - out_records);
+
+                        /* cmetrics */
+                        cmt_counter_add(f_ins->cmt_drop_records, ts, diff,
+                                    1, (char *[]) {name});
+
+                        /* [OLD] Summarize dropped records */
+                        flb_metrics_sum(FLB_METRIC_N_DROPPED,
+                                        diff, f_ins->metrics);
+                    }
+#endif
+
             }
             else if (ret == FLB_FILTER_NOTOUCH) {
                 /* keep original data, do nothing */
@@ -653,11 +735,13 @@ int flb_processor_run(struct flb_processor *proc,
                         return -1;
                     }
 
-                    if (cur_buf != data) {
+                    if (cur_buf != data && cur_buf != tmp_buf) {
                         cmt_destroy(cur_buf);
                     }
 
-                    cur_buf = (void *)tmp_buf;
+                    if (tmp_buf != NULL) {
+                        cur_buf = tmp_buf;
+                    }
                 }
             }
             else if (type == FLB_PROCESSOR_TRACES) {
@@ -667,6 +751,22 @@ int flb_processor_run(struct flb_processor *proc,
                                                       (struct ctrace *) cur_buf,
                                                       tag,
                                                       tag_len);
+
+                    if (ret != FLB_PROCESSOR_SUCCESS) {
+                        release_lock(&pu->lock,
+                                     FLB_PROCESSOR_LOCK_RETRY_LIMIT,
+                                     FLB_PROCESSOR_LOCK_RETRY_DELAY);
+
+                        return -1;
+                    }
+                }
+            }
+            else if (type == FLB_PROCESSOR_PROFILES) {
+                if (p_ins->p->cb_process_profiles != NULL) {
+                    ret = p_ins->p->cb_process_profiles(p_ins,
+                                                        (struct cprof *) cur_buf,
+                                                        tag,
+                                                        tag_len);
 
                     if (ret != FLB_PROCESSOR_SUCCESS) {
                         release_lock(&pu->lock,
@@ -719,6 +819,13 @@ void flb_processor_destroy(struct flb_processor *proc)
         mk_list_del(&pu->_head);
         flb_processor_unit_destroy(pu);
     }
+
+    mk_list_foreach_safe(head, tmp, &proc->profiles) {
+        pu = mk_list_entry(head, struct flb_processor_unit, _head);
+        mk_list_del(&pu->_head);
+        flb_processor_unit_destroy(pu);
+    }
+
     flb_free(proc);
 }
 
@@ -733,6 +840,7 @@ static int load_from_config_format_group(struct flb_processor *proc, int type, s
     struct cfl_kvlist *kvlist;
     struct cfl_kvpair *pair = NULL;
     struct cfl_list *head;
+    struct cfl_list *tmp2;
     struct flb_processor_unit *pu;
     struct flb_filter_instance *f_ins;
 
@@ -769,7 +877,7 @@ static int load_from_config_format_group(struct flb_processor *proc, int type, s
         }
 
         /* iterate list of properties and set each one (skip name) */
-        cfl_list_foreach(head, &kvlist->list) {
+        cfl_list_foreach_safe(head, tmp2, &kvlist->list) {
             pair = cfl_list_entry(head, struct cfl_kvpair, _head);
 
             if (strcmp(pair->key, "name") == 0) {
@@ -845,6 +953,17 @@ int flb_processors_load_from_config_format_group(struct flb_processor *proc, str
         }
     }
 
+    /* profiles */
+    val = cfl_kvlist_fetch(g->properties, "profiles");
+    if (val) {
+        ret = load_from_config_format_group(proc, FLB_PROCESSOR_PROFILES, val);
+
+        if (ret == -1) {
+            flb_error("failed to load 'profiles' processors");
+            return -1;
+        }
+    }
+
     return 0;
 }
 
@@ -869,18 +988,20 @@ static inline int prop_key_check(const char *key, const char *kv, int k_len)
 }
 
 int flb_processor_instance_set_property(struct flb_processor_instance *ins,
-                                        const char *k, const char *v)
+                                        const char *k, struct cfl_variant *v)
 {
     int len;
     int ret;
-    flb_sds_t tmp;
     struct flb_kv *kv;
+    cfl_sds_t tmp = NULL;
 
     len = strlen(k);
-    tmp = flb_env_var_translate(ins->config->env, v);
+    if (v->type == CFL_VARIANT_STRING) {
+        tmp = flb_env_var_translate(ins->config->env, v->data.as_string);
 
-    if (!tmp) {
-        return -1;
+        if (!tmp) {
+            return -1;
+        }
     }
 
     if (prop_key_check("alias", k, len) == 0 && tmp) {
@@ -903,13 +1024,22 @@ int flb_processor_instance_set_property(struct flb_processor_instance *ins,
         kv = flb_kv_item_create(&ins->properties, (char *) k, NULL);
 
         if (!kv) {
-
             if (tmp) {
                 flb_sds_destroy(tmp);
             }
             return -1;
         }
-        kv->val = tmp;
+
+
+        if (v->type == CFL_VARIANT_STRING) {
+            kv->val = tmp;
+        }
+        else {
+            /* Hacky workaround: We store the variant address in a char * just to pass
+             * the variant reference to the plugin. After this happens,
+             * kv->val must be set to NULL (done in flb_config_map.c) */
+            kv->val = (void *)v;
+        }
     }
 
     return 0;

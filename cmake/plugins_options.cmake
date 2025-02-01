@@ -11,6 +11,7 @@ option(FLB_MINIMAL "Enable minimal build configuration" No)
 
 # Inputs (sources, data collectors)
 # =================================
+DEFINE_OPTION(FLB_IN_BLOB                     "Enable Blob input plugin"                     ON)
 DEFINE_OPTION(FLB_IN_CALYPTIA_FLEET           "Enable Calyptia Fleet input plugin"           ON)
 DEFINE_OPTION(FLB_IN_COLLECTD                 "Enable Collectd input plugin"                 ON)
 DEFINE_OPTION(FLB_IN_CPU                      "Enable CPU input plugin"                      ON)
@@ -47,6 +48,7 @@ DEFINE_OPTION(FLB_IN_PROMETHEUS_SCRAPE        "Enable Prometheus Scrape input pl
 DEFINE_OPTION(FLB_IN_RANDOM                   "Enable random input plugin"                   ON)
 DEFINE_OPTION(FLB_IN_SERIAL                   "Enable Serial input plugin"                   ON)
 DEFINE_OPTION(FLB_IN_SPLUNK                   "Enable Splunk HTTP HEC input plugin"          ON)
+DEFINE_OPTION(FLB_IN_STATSD                   "Enable StatsD input plugin"                   ON)
 DEFINE_OPTION(FLB_IN_STDIN                    "Enable Standard input plugin"                 ON)
 DEFINE_OPTION(FLB_IN_STORAGE_BACKLOG          "Enable storage backlog input plugin"          ON)
 DEFINE_OPTION(FLB_IN_SYSLOG                   "Enable Syslog input plugin"                   ON)
@@ -60,6 +62,7 @@ DEFINE_OPTION(FLB_IN_WINLOG                   "Enable Windows Log input plugin" 
 DEFINE_OPTION(FLB_IN_WINDOWS_EXPORTER_METRICS "Enable windows exporter metrics input plugin" ON)
 DEFINE_OPTION(FLB_IN_WINEVTLOG                "Enable Windows EvtLog input plugin"           OFF)
 DEFINE_OPTION(FLB_IN_WINSTAT                  "Enable Windows Stat input plugin"             OFF)
+DEFINE_OPTION(FLB_IN_EBPF                     "Enable Linux eBPF input plugin"               OFF)
 
 # Processors
 # ==========
@@ -87,12 +90,14 @@ DEFINE_OPTION(FLB_FILTER_MULTILINE            "Enable multiline filter"         
 DEFINE_OPTION(FLB_FILTER_NEST                 "Enable nest filter"                           ON)
 DEFINE_OPTION(FLB_FILTER_NIGHTFALL            "Enable Nightfall filter"                      ON)
 DEFINE_OPTION(FLB_FILTER_PARSER               "Enable parser filter"                         ON)
+DEFINE_OPTION(FLB_FILTER_RECORD_MODIFIER      "Enable record_modifier filter"                ON)
 DEFINE_OPTION(FLB_FILTER_REWRITE_TAG          "Enable tag rewrite filter"                    ON)
 DEFINE_OPTION(FLB_FILTER_STDOUT               "Enable stdout filter"                         ON)
 DEFINE_OPTION(FLB_FILTER_SYSINFO              "Enable sysinfo filter"                        ON)
 DEFINE_OPTION(FLB_FILTER_THROTTLE             "Enable throttle filter"                       ON)
 DEFINE_OPTION(FLB_FILTER_THROTTLE_SIZE        "Enable throttle size filter"                  OFF)
 DEFINE_OPTION(FLB_FILTER_TYPE_CONVERTER       "Enable type converter filter"                 ON)
+DEFINE_OPTION(FLB_FILTER_TENSORFLOW           "Enable tensorflow filter"                     OFF)
 DEFINE_OPTION(FLB_FILTER_WASM                 "Enable WASM filter"                           ON)
 
 # Outputs (destinations)
@@ -119,8 +124,11 @@ DEFINE_OPTION(FLB_OUT_KAFKA                   "Enable Kafka output plugin"      
 DEFINE_OPTION(FLB_OUT_KAFKA_REST              "Enable Kafka Rest output plugin"              ON)
 DEFINE_OPTION(FLB_OUT_KINESIS_FIREHOSE        "Enable AWS Firehose output plugin"            ON)
 DEFINE_OPTION(FLB_OUT_KINESIS_STREAMS         "Enable AWS Kinesis output plugin"             ON)
+DEFINE_OPTION(FLB_OUT_LIB                     "Enable library mode output plugin"            ON)
 DEFINE_OPTION(FLB_OUT_LOGDNA                  "Enable LogDNA output plugin"                  ON)
 DEFINE_OPTION(FLB_OUT_LOKI                    "Enable Loki output plugin"                    ON)
+DEFINE_OPTION(FLB_OUT_NATS                    "Enable NATS output plugin"                    ON)
+DEFINE_OPTION(FLB_OUT_NRLOGS                  "Enable New Relic output plugin"               ON)
 DEFINE_OPTION(FLB_OUT_NULL                    "Enable dev null output plugin"                ON)
 DEFINE_OPTION(FLB_OUT_OPENSEARCH              "Enable OpenSearch output plugin"              ON)
 DEFINE_OPTION(FLB_OUT_OPENTELEMETRY           "Enable OpenTelemetry plugin"                  ON)
